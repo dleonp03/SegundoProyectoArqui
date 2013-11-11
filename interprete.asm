@@ -15,7 +15,7 @@ stdout          equ     1
 section .bss	;Datos no inicializados
 
 ; Buffer para leer cada entrada que hace el usuario en el prompt
-buffLenParametros: 	equ 80
+buffLenParametros: 	equ 120
 buffParametros: 	resb buffLenParametros
 
 
@@ -28,29 +28,21 @@ buffComando			resb lenBuffComando
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
-;Buffer que almacenará el nombre del archivo que se desea borrar
-lenNombreArchivoBorrar	equ 40
-nombreArchivoBorrar		resb lenNombreArchivoBorrar
+;Buffers que podrán almacenar nombres de archivos, se reutilizarán para todas las funcionalidades.
+
+lenNombreArchivo1	equ 25
+nombreArchivo1		resb lenNombreArchivo1
+
+lenNombreArchivo2	equ 25	
+nombreArchivo2		resb lenNombreArchivo2
 
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
-;Buffer que almacenará el nombre del archivo que se desea mostrar
-lenNombreArchivoMostrar	equ 40
-nombreArchivoMostrar	resb lenNombreArchivoBorrar
+;Buffer vacío que servirá para limpiar los que ya han sido usados cuando se restaura el interprete.
+lenBufferLimpio		equ 120
+bufferLimpio		resb lenBufferLimpio
 
-
-
-;-------------------------------------------------------------------------------------------------------------------------------------------
-
-;Buffer que almacenará el nombre del archivo que se desea renombrar
-lenNombreArchivoRenombrar	equ 40
-nombreArchivoRenombrar		resb lenNombreArchivoRenombrar
-
-;Buffer que almacenará el nuevo nombre para el archivo a renombrar
-
-lenNuevoNombreRenombrar		equ 40
-nuevoNombreRenombrar		resb lenNuevoNombreRenombrar
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -152,6 +144,13 @@ lenArchivoRenombrarNoExiste		equ $-archivoRenombrarNoExiste
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
+;Mensaje de error para cuando un archivo que se intenta copiar no existe.
+archivoCopiarNoExiste 		db 10,"El archivo que desea copiar no existe",10,10
+lenArchivoCopiarNoExiste	equ $-archivoCopiarNoExiste
+
+
+;-------------------------------------------------------------------------------------------------------------------------------------------
+
 ;Mensaje que dice que se borró con éxito el archivo
 borradoConExito 		db 10,"El archivo se borró con éxito",10,10
 lenBorradoConExito		equ $-borradoConExito
@@ -160,8 +159,15 @@ lenBorradoConExito		equ $-borradoConExito
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Mensaje que dice que se renombró un archivo con éxito
-renombradoConExito 			db 10,"El archivo fue renombrado",10,10
+renombradoConExito 			db 10,"El archivo fue renombrado con éxito.",10,10
 lenRenombradoConExito		equ $-renombradoConExito
+
+
+;-------------------------------------------------------------------------------------------------------------------------------------------
+
+;Mensaje que dice que se copió un archivo con éxito
+copiadoConExito 		db 10,"El archivo fue copiado con éxito",10,10
+lenCopiadoConExito		equ $-copiadoConExito
 
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
@@ -175,13 +181,6 @@ opcionesSINO 	db "sn"
 ;String en el que se meterá el segundo argumento que la persona ingrese, es usado para hacer comparaciones.
 segundoArgumento 		db "                         "
 lenSegundoArgumento		equ $-segundoArgumento
-
-
-;-------------------------------------------------------------------------------------------------------------------------------------------
-
-;String en el que se meterá el segundo argumento que la persona ingrese, es usado para hacer comparaciones.
-tercerArgumento 		db "                         "
-lenTercerArgumento		equ $-tercerArgumento
 
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
@@ -240,6 +239,8 @@ lenArchivo	dd 0
 ;Double que almacena el filedescriptor
 fileDescriptor1 dd 0
 
+fileDescriptor2 dd 0
+
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 section .text 
@@ -250,8 +251,10 @@ _start: 									;Inicio del programa
 	nop 									;Mantiene el debugger feliz
 	
 inicio:
-
-	call	imprimirPrompt
+	
+	call	ResetearInterprete				;Es necesario cada vez que se vuelve a inicio resetear variables y registros.
+	
+	call	imprimirPrompt					;Se imprime el prompt dld&
 	
 	mov     ecx, buffParametros		
     mov		edx, buffLenParametros			; Lee y deja en buffParametros lo que ingrese el usuario
@@ -330,7 +333,7 @@ compararConCopiar:
 .cicloCompararConCopiar:
 
 	cmp		edx, lenStringCopiar
-	je		codigoBorrar						
+	je		verificarArgumentosCopiar						
 	mov		al, byte[ebx + edx]
 	cmp		al, byte[stringCopiar + edx]
 	jne		compararConComparar
@@ -387,6 +390,7 @@ codigoBorrar:
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 verificarArgumentosBorrar:
+
 	mov		edx, lenStringBorrar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
 	mov		esi, 0								;segundo argumento.
 	mov		ecx, buffParametros					;Buffer que se recorrerá con edx
@@ -408,6 +412,7 @@ verificarArgumentosBorrar:
 	inc		esi
 	jmp 	.cicloMeterArgumento2Borrar
 
+	
 compararAyudaBorrar:
 	
 	mov		edx, 0
@@ -420,7 +425,7 @@ compararAyudaBorrar:
 	je		desplegarAyudaBorrar			
 	mov		al, byte[ebx + edx]					;Ciclo que va comparando byte por byte de segundo argumento con los bytes de stringAyuda
 	cmp		al, byte[stringAyuda + edx]			;Si son iguales va a desplegar ayuda. Si son diferentes va a cargarArchivoBorrar2
-	jne		cargarArchivoBorrar2
+	jne		cargarArchivoBorrar
 	inc 	edx
 	jmp		.cicloCompararAyudaBorrar
 	
@@ -430,90 +435,47 @@ desplegarAyudaBorrar:
 	mov		edx, lenAyuda
 	call	DisplayText
 	
-;Se brinca aquí cuando si se puso --ayuda, debe moverse a la posicion que está despues de --ayuda, para despues empezar a copiar los bytes en nombreArchivoBorrar
-cargarArchivoBorrar1:
-
-	mov		edx, lenStringBorrar + lenStringAyuda + 2		;Con un tipo de fórmula, se saca el índice donde se empezarán a copiar bytes a nombreArchivo
-	mov		esi, 0											;Indice para ir recorriendo nombreArchivoBorrar.
-	mov		ecx, buffParametros
-    mov		ebx, nombreArchivoBorrar
-    
-    mov		al, byte [ecx + edx-1]
-    cmp		al, byte 10										;Si después de --ayuda lo que hay es un enter, vuelve al inicio
-    je		inicio
-    
-    
-.cicloCargarArchivoBorrar1:
-
-	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		verificarForzadoBorrar1							;Va introduciendo en nombreArchivoBorrar todos los bytes hasta que encuentre un espacio o un
-	cmp		al, byte 10										;enter. Después brinca a verificarForzadoBorrar1
-	je		verificarForzadoBorrar1
-	mov		byte [ebx + esi], al
-	inc		esi
-	inc		edx
-	jmp 	.cicloCargarArchivoBorrar1
+	jmp 	inicio
 	
-;Se brinca aquí cuando no se puso --ayuda, el nombre del archivo ya se encuentra guardado en segundoArgumento, por lo que debe pasarse a nombreArchivoBorrar
-cargarArchivoBorrar2:
+;Se brinca aquí cuando si se puso --ayuda, debe moverse a la posicion que está despues de --ayuda, para despues empezar a copiar los bytes en nombreArchivo1
 
-	mov		edx, 0
-	mov		esi, 0
-	mov		ecx, segundoArgumento							;Se dejan listos en los registros lo que se ocupa para entrar al siguiente ciclo.
-    mov		ebx, nombreArchivoBorrar
+cargarArchivoBorrar:
+
+	mov		edx, lenStringBorrar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
+	mov		esi, 0								;segundo argumento.
+	mov		ecx, buffParametros					;Buffer que se recorrerá con edx
+    mov		ebx, nombreArchivo1					;buffer donde se irán metiendo bytes, se recorre con esi (desde el inicio)
     
-.cicloCargarArchivoBorrar2:
+    mov		al, [ecx + lenStringBorrar]
+    cmp		al, 10								;Si después de borrar hay un enter, tira error.
+    je		imprimirErrorComando
+    
+.cicloCargarArchivoBorrar:
 
 	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		verificarForzadoBorrar2							;Empieza a copiar byte por byte lo que haya en segundo argumento en nombreArchivoBorrar
+	cmp		al, byte 20h					
+	je		verificarForzadoBorrar
+	cmp		al, byte 10							;Ciclo que mete lo que haya despues de borrar en segundoArgumento, hasta encontrar un espacio o un enter
+	je		verificarForzadoBorrar				;posteriormente brinca a compararAyudaBorrar
 	mov		byte [ebx + esi], al
 	inc		edx
 	inc		esi
-	jmp 	.cicloCargarArchivoBorrar2
+	jmp 	.cicloCargarArchivoBorrar
 	
 
-;Se brinca aquí cuando si se había ingresado --ayuda como parte de la entrada
-verificarForzadoBorrar1:
-	mov		edx, lenStringBorrar + lenStringAyuda + 3		;Indice en el que se empezarán a copiar bytes para en buffForzado
-	add		edx, esi										;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
+verificarForzadoBorrar:
+	
+	mov		edx, lenStringBorrar + 2					;Indice en el que se empezarán a copiar bytes para en buffForzado
+	add		edx, esi									;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
 	mov		esi, 0
 	mov		ecx, buffParametros
     mov		ebx, buffForzado
     
     mov		al,byte [ecx + edx-1]
-    cmp		al, byte 10										;Si lo que está después del nombre de archivo es un enter, se va a ejecutar borrar de una vez
+    cmp		al, byte 10									;Si lo que está después del nombre de archivo es un enter, se va a ejecutar borrar de una vez
     je		ejecutarBorrar
-
-    
-.cicloCargarForzado1:
-
-	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		compararForzado
-	cmp		al, byte 10
-	je		compararForzado									;Se va metiendo byte por byte lo que esté después del nombre archivo en buffForzado. Brinca
-	mov		byte [ebx + esi], al							;a comparar forzado para ver si se ingresó bien esta parte así --forzado.
-	inc		esi
-	inc		edx
-	jmp 	.cicloCargarForzado1
-
-
-;Se brinca aquí cuando no se ingresó ayuda, lo que cambia es el índice edx, no se debe sumar el len de ayuda.
-verificarForzadoBorrar2:
-	mov		edx, lenStringBorrar + 2						;Indice en el que se empezarán a copiar bytes para en buffForzado
-	add		edx, esi										;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
-	mov		esi, 0
-	mov		ecx, buffParametros
-    mov		ebx, buffForzado
-    
-    mov		al,byte [ecx + edx-1]
-    cmp		al, byte 10										;Si lo que está después del nombre de archivo es un enter, se va a ejecutar borrar de una vez
-    je		ejecutarBorrar
-
-    
-.cicloCargarForzado2:
+       
+.cicloCargarForzado:
 
 	mov		al, byte [ecx + edx]
 	cmp		al, byte 20h
@@ -523,7 +485,8 @@ verificarForzadoBorrar2:
 	mov		byte [ebx + esi], al
 	inc		esi
 	inc		edx
-	jmp 	.cicloCargarForzado2
+	jmp 	.cicloCargarForzado
+	
 	
 compararForzado:
 
@@ -578,31 +541,26 @@ preguntarDeseaBorrar:
 
 borrarArchivo:
 	
-	mov		eax, nombreArchivoBorrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
-	
-	mov		ebx, eax 								;Direccion al nombre del archivo
+	mov		eax, nombreArchivo1
+	mov		ebx, eax								;Direccion al nombre del archivo
 	mov		ecx, 0									;Read only, solo quiere leer
 	mov		eax,sys_open  							;Servicio para abrir un archivo
 	int		80h		
 	
 
-	test	eax, eax 	;Revisar si el abrir el archivo lo hizo correctamente, SI RETORNA NEGATIVO ESTA MAL, el test actualiza las banderas del status
-	js		errorNoExisteBorrar ;Si la bandera del signo(lo último fue negativo, es decir no se abrió correctamente, tira error)
+	test	eax, eax 								;Revisar si el abrir el archivo lo hizo correctamente, si retorna negativo está mal.
+	js		errorNoExisteBorrar 					;Si la bandera del signo(lo último fue negativo, es decir no se abrió correctamente, tira error)
 	
 	mov		ebx, eax								;Cierro el archivo
 	call	Cerrar_Archivo
 	
-	mov		eax, nombreArchivoBorrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
-	
+	mov		eax, nombreArchivo1
 	mov		ebx, eax								;Se mueve a ebx el buffer que contiene el nombre del archivo
 	call	Borrar_Archivo							;Se llama la subrutina de borrar archivo, que borra el archivo con el nombre puesto en ebx.
 	
 	mov		ecx, borradoConExito
 	mov		edx, lenBorradoConExito					;Imprime un mensaje de que el archivo se borró con éxito
 	call	DisplayText
-	
-	
-	call 	ResetearInterprete						;Se resetean variables y registros.
 	
 	jmp		inicio									;Vuelve al inicio para esperar un nuevo comando.
 	
@@ -650,7 +608,7 @@ compararAyudaMostrar:
 	je		desplegarAyudaMostrar			
 	mov		al, byte[ebx + edx]					;Ciclo que va comparando byte por byte de segundo argumento con los bytes de stringAyuda
 	cmp		al, byte[stringAyuda + edx]			;Si son iguales va a desplegar ayuda. Si son diferentes va a cargarArchivoBorrar2
-	jne		cargarArchivoMostrar2
+	jne		cargarArchivoMostrar
 	inc 	edx
 	jmp		.cicloCompararAyudaMostrar
 	
@@ -660,63 +618,46 @@ desplegarAyudaMostrar:
 	mov		edx, lenAyuda
 	call	DisplayText
 	
+	jmp		inicio
 	
-;Se brinca aquí cuando si se puso --ayuda, debe moverse a la posicion que está despues de --ayuda, para despues empezar a copiar los bytes en nombreArchivoMostrar
-cargarArchivoMostrar1:
-
-	mov		edx, lenStringMostrar + lenStringAyuda + 2		;Con un tipo de fórmula, se saca el índice donde se empezarán a copiar bytes a nombreArchivo
-	mov		esi, 0											;Indice para ir recorriendo nombreArchivoMostrar
-	mov		ecx, buffParametros
-    mov		ebx, nombreArchivoMostrar
-   
-    mov		al, byte [ecx + edx-1]
-    cmp		al, byte 10										;Si después de --ayuda lo que hay es un enter, vuelve al inicio
-    je		inicio
-       
-.cicloCargarArchivoMostrar1:
-
-	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		ejecutarMostrar						;Va introduciendo en nombreArchivoMostrar todos los bytes hasta que encuentre un espacio o un
-	cmp		al, byte 10							;enter. Después brinca a ejecutarMostrar
-	je		ejecutarMostrar
-	mov		byte [ebx + esi], al
-	inc		esi
-	inc		edx
-	jmp 	.cicloCargarArchivoMostrar1
 	
-;Se brinca aquí cuando no se puso --ayuda, el nombre del archivo ya se encuentra guardado en segundoArgumento, por lo que debe pasarse a nombreArchivoMostrar
-cargarArchivoMostrar2:
+cargarArchivoMostrar:
 
-	mov		edx, 0
-	mov		esi, 0
-	mov		ecx, segundoArgumento							;Se dejan listos en los registros lo que se ocupa para entrar al siguiente ciclo.
-    mov		ebx, nombreArchivoMostrar
+	mov		edx, lenStringMostrar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
+	mov		esi, 0								;segundo argumento.
+	mov		ecx, buffParametros					;Buffer que se recorrerá con edx como indice
+    mov		ebx, nombreArchivo1					;buffer donde se irán metiendo bytes, se recorre con esi (desde el inicio)
     
-.cicloCargarArchivoMostrar2:
+    mov		al, [ecx + lenStringMostrar]
+    cmp		al, 10								;Si después de mostrar hay más letras pegadas, tira error de comando.
+    je		imprimirErrorComando
+    
+.cicloCargarArchivoMostrar:
 
 	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		ejecutarMostrar									;Empieza a copiar byte por byte lo que haya en segundo argumento en nombreArchivoMostrar
+	cmp		al, byte 20h					
+	je		ejecutarMostrar
+	cmp		al, byte 10							;Ciclo que mete lo que haya despues de borrar en segundoArgumento, hasta encontrar un espacio o un enter
+	je		ejecutarMostrar						;posteriormente brinca a compararAyudaBorrar
 	mov		byte [ebx + esi], al
 	inc		edx
 	inc		esi
-	jmp 	.cicloCargarArchivoMostrar2
+	jmp 	.cicloCargarArchivoMostrar
 	
+
 ejecutarMostrar:
 
 	mov		ecx, enter
 	mov		edx, lenEnter							;Se imprime un enter para separar líneas.
 	call	DisplayText
 
-	mov		eax, nombreArchivoMostrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
+	mov		eax, nombreArchivo1
 	
-	mov		ebx, eax 								;Direccion al nombre del archivo
+	mov		ebx, eax								;Direccion al nombre del archivo
 	mov		ecx, 0									;Read only, solo quiere leer
 	mov		eax,sys_open  							;Servicio para abrir un archivo
 	int		80h		
 	
-
 	test	eax, eax 								;Revisar si el abrir el archivo lo hizo correctamente, si retorna negativo está mal.
 	js		errorNoExisteMostrar 					;Si la bandera del signo(lo último fue negativo, es decir no se abrió correctamente, tira error)
 	
@@ -732,14 +673,13 @@ ejecutarMostrar:
 	mov		edx, eax								;Imprimo lo que leí y guardé en buffArchivo
 	call	DisplayText
 	
-	mov		ebx, [fileDescriptor1]					;Cierro el archivo
+	mov		eax, [fileDescriptor1]	
+	mov		ebx, eax								;Cierro el archivo
 	call	Cerrar_Archivo
 	
 	mov		ecx, enter
 	mov		edx, lenEnter							;Se imprime un enter para separar líneas.
 	call	DisplayText
-	
-	call 	ResetearInterprete						;Se resetean variables y registros.
 	
 	jmp		inicio									;Vuelve al inicio para esperar un nuevo comando.
 	
@@ -787,7 +727,7 @@ compararAyudaRenombrar:
 	je		desplegarAyudaRenombrar			
 	mov		al, byte[ebx + edx]					;Ciclo que va comparando byte por byte de segundo argumento con los bytes de stringAyuda
 	cmp		al, byte[stringAyuda + edx]			;Si son iguales va a desplegar ayuda. Si son diferentes va a cargarArchivoRenombrar2
-	jne		cargarArchivoRenombrar2
+	jne		cargarArchivoRenombrar
 	inc 	edx
 	jmp		.cicloCompararAyudaRenombrar
 	
@@ -797,93 +737,46 @@ desplegarAyudaRenombrar:
 	mov		edx, lenAyuda
 	call	DisplayText
 	
-;Se brinca aquí cuando si se puso --ayuda, debe moverse a la posicion que está despues de --ayuda, para despues empezar a copiar los bytes en nombreArchivoBorrar
-cargarArchivoRenombrar1:
-
-	mov		edx, lenStringRenombrar + lenStringAyuda + 2	;Con un tipo de fórmula, se saca el índice donde se empezarán a copiar bytes a nombreArchivo
-	mov		esi, 0											;Indice para ir recorriendo nombreArchivoRenombrar.
-	mov		ecx, buffParametros
-    mov		ebx, nombreArchivoRenombrar
-    
-    mov		al, byte [ecx + edx-1]
-    cmp		al, byte 10										;Si después de --ayuda lo que hay es un enter, vuelve al inicio
-    je		inicio
-    
-    
-.cicloCargarArchivoRenombrar1:
-
-	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		cargarNombreRenombrar1						;Va introduciendo en nombreArchivoBorrar todos los bytes hasta que encuentre un espacio o un
-	cmp		al, byte 10										;enter. Después brinca a verificarForzadoBorrar1
-	je		cargarNombreRenombrar1
-	mov		byte [ebx + esi], al
-	inc		esi
-	inc		edx
-	jmp 	.cicloCargarArchivoRenombrar1
+	jmp 	inicio
 	
-;Se brinca aquí cuando no se puso --ayuda, el nombre del archivo ya se encuentra guardado en segundoArgumento, por lo que debe pasarse a nombreArchivoBorrar
-cargarArchivoRenombrar2:
 
-	mov		edx, 0
-	mov		esi, 0
-	mov		ecx, segundoArgumento							;Se dejan listos en los registros lo que se ocupa para entrar al siguiente ciclo.
-    mov		ebx, nombreArchivoRenombrar
+cargarArchivoRenombrar:
+	
+	mov		edx, lenStringRenombrar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
+	mov		esi, 0								;segundo argumento.
+	mov		ecx, buffParametros					;Buffer que se recorrerá con edx
+    mov		ebx, nombreArchivo1					;buffer donde se irán metiendo bytes, se recorre con esi (desde el inicio)
     
-.cicloCargarArchivoRenombrar2:
+    mov		al, [ecx + lenStringRenombrar]
+    cmp		al, 10								;Si después de renombrar hay más letras pegadas, tira error de comando.
+    je		imprimirErrorComando
+    
+.cicloCargarArchivoRenombrar:
 
 	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		cargarNombreRenombrar2							;Empieza a copiar byte por byte lo que haya en segundo argumento en nombreArchivoBorrar
+	cmp		al, byte 20h					
+	je		cargarNombreRenombrar
+	cmp		al, byte 10							;Ciclo que mete lo que haya despues de borrar en segundoArgumento, hasta encontrar un espacio o un enter
+	je		cargarNombreRenombrar				;posteriormente brinca a compararAyudaRenombrar
 	mov		byte [ebx + esi], al
 	inc		edx
 	inc		esi
-	jmp 	.cicloCargarArchivoRenombrar2
+	jmp 	.cicloCargarArchivoRenombrar
 	
-
-;Se brinca aquí cuando si se había ingresado --ayuda como parte de la entrada
-cargarNombreRenombrar1:
-
-	mov		edx, lenStringRenombrar + lenStringAyuda + 3		;Indice en el que se empezarán a copiar bytes para en buffForzado
-	add		edx, esi											;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
-	mov		[indiceTemporal], edx								;Se guarda el indice
-	mov		esi, 0
-	mov		ecx, buffParametros
-    mov		ebx, nuevoNombreRenombrar
-    
-    mov		al,byte [ecx + edx-1]
-    cmp		al, byte 10								;Si lo que está después del nombre de archivo es un enter, se va a ejecutar borrar de una vez
-    je		mostrarErrorEntrada
-
-    
-.cicloCargarNombreRenombrar1:
-
-	mov		al, byte [ecx + edx]
-	cmp		al, byte 20h
-	je		verificarForzadoRenombrar
-	cmp		al, byte 10
-	je		verificarForzadoRenombrar				;Se va metiendo byte por byte lo que esté después del nombre archivo en buffForzado. Brinca
-	mov		byte [ebx + esi], al					;a comparar forzado para ver si se ingresó bien esta parte así --forzado.
-	inc		esi
-	inc		edx
-	jmp 	.cicloCargarNombreRenombrar1
-
-
-;Se brinca aquí cuando no se ingresó ayuda, lo que cambia es el índice edx, no se debe sumar el len de ayuda.
-cargarNombreRenombrar2:
-	mov		edx, lenStringRenombrar + 2				;Indice en el que se empezarán a copiar bytes para en buffForzado
+	
+cargarNombreRenombrar:
+	mov		edx, lenStringRenombrar + 2				;Indice en el que se empezarán a copiar bytes de buffParametros
 	add		edx, esi								;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
 	mov		[indiceTemporal], edx					;Se guarda el indice
 	mov		esi, 0
 	mov		ecx, buffParametros
-    mov		ebx, nuevoNombreRenombrar
+    mov		ebx, nombreArchivo2
     
     mov		al,byte [ecx + edx-1]
     cmp		al, byte 10								;Si lo que está después del nombre de archivo es un enter, se va a ejecutar borrar de una vez
     je		mostrarErrorEntrada
 
-    
-.cicloCargarNombreRenombrar2:
+.cicloCargarNombreRenombrar:
 
 	mov		al, byte [ecx + edx]
 	cmp		al, byte 20h
@@ -893,7 +786,7 @@ cargarNombreRenombrar2:
 	mov		byte [ebx + esi], al
 	inc		esi
 	inc		edx
-	jmp 	.cicloCargarNombreRenombrar2
+	jmp 	.cicloCargarNombreRenombrar
 	
 verificarForzadoRenombrar:
 	mov		edx, [indiceTemporal]					;Indice en el que se empezarán a copiar bytes para en buffForzado
@@ -973,9 +866,9 @@ preguntarDeseaRenombrar:
 	
 renombrarArchivo:
 	
-	mov		eax, nombreArchivoRenombrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
+	mov		eax, nombreArchivo1
 	
-	mov		ebx, eax 								;Direccion al nombre del archivo
+	mov		ebx, eax								;Direccion al nombre del archivo
 	mov		ecx, 0									;Read only, solo quiere leer
 	mov		eax,sys_open  							;Servicio para abrir un archivo
 	int		80h		
@@ -993,19 +886,17 @@ renombrarArchivo:
 	
 	mov		[lenArchivo], eax						;Guardo en lenArchivo la cantidad de bytes que se leyeron (quedaron en eax)
 	
-	mov		eax, nombreArchivoRenombrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
+	mov		eax, nombreArchivo1
 	
 	mov		ebx, eax								;Se mueve a ebx el buffer que contiene el nombre del archivo
 	call	Borrar_Archivo							;Se llama la subrutina de borrar archivo, que borra el archivo con el nombre puesto en ebx.
 	
-	mov		eax, nuevoNombreRenombrar			
-	mov 	ebx, eax			    				; Guardamos en "ebx" el nombre que tendrá el archivo que se quiere crear.
-	
 	; Se crea el archivo
+	mov 	ebx, nombreArchivo2			    		; Guardamos en "ebx" el nombre que tendrá el archivo que se quiere crear.
 	mov 	ecx, 511 				    			; Modo de acceso
 	call 	Crear_Archivo 
 	
-	mov		eax, nuevoNombreRenombrar
+	mov		eax, nombreArchivo2
 	
 	mov		ebx, eax 								;Direccion al nombre del archivo
 	mov		ecx, 1									;Modo de acceso para poder escribir.
@@ -1017,17 +908,17 @@ renombrarArchivo:
 	mov 	ebx, eax 								; Se guarda el fd del archivo  para poder escribir sobre el 
 	
 	mov 	ecx, buffArchivo
-	mov 	edx, [lenArchivo]
+	mov 	edx, [lenArchivo]						;Se escribe el contenido del primer archivo en el nuevo.
 	call 	Escribir_Archivo
 	
-	mov		ebx, [fileDescriptor1]
+	mov		eax, [fileDescriptor1]
+	
+	mov		ebx, eax								;Se cierra el archivo
 	call 	Cerrar_Archivo
 	
-	mov		ecx, renombradoConExito
-	mov 	edx, lenRenombradoConExito
+	mov		ecx, renombradoConExito	
+	mov 	edx, lenRenombradoConExito				;Se muestra un mensaje de que se renombró con éxito.
 	call	DisplayText
-	
-	call 	ResetearInterprete						;Se resetean variables y registros.
 	
 	jmp		inicio									;Vuelve al inicio para esperar un nuevo comando.
 	
@@ -1041,12 +932,177 @@ renombrarArchivo:
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
+verificarArgumentosCopiar:
+
+	mov		edx, lenStringCopiar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
+	mov		esi, 0								;segundo argumento.
+	mov		ecx, buffParametros					;Buffer que se recorrerá con edx
+    mov		ebx, segundoArgumento				;buffer donde se irán metiendo bytes, se recorre con esi (desde el inicio)
+    
+    mov		al, [ecx + lenStringCopiar]
+    cmp		al, 10								;Si después de copiar hay más letras pegadas, tira error de comando.
+    je		imprimirErrorComando
+    
+.cicloMeterArgumento2Copiar:
+
+	mov		al, byte [ecx + edx]
+	cmp		al, byte 20h					
+	je		compararAyudaCopiar
+	cmp		al, byte 10							;Ciclo que mete lo que haya despues de copiar en segundoArgumento, hasta encontrar un espacio o un enter
+	je		compararAyudaCopiar					;posteriormente brinca a compararAyudaCopiar
+	mov		byte [ebx + esi], al
+	inc		edx
+	inc		esi
+	jmp 	.cicloMeterArgumento2Copiar
+
+compararAyudaCopiar:
+	
+	mov		edx, 0
+	mov		ebx, segundoArgumento				;En ebx se mete lo que se quiere comparar.
+	
+	
+.cicloCompararAyudaCopiar:
+
+	cmp		edx, lenStringAyuda
+	je		desplegarAyudaCopiar		
+	mov		al, byte[ebx + edx]					;Ciclo que va comparando byte por byte de segundo argumento con los bytes de stringAyuda
+	cmp		al, byte[stringAyuda + edx]			;Si son iguales va a desplegar ayuda. Si son diferentes va a cargarArchivoCopiar2
+	jne		cargarArchivoCopiar
+	inc 	edx
+	jmp		.cicloCompararAyudaCopiar
+	
+
+desplegarAyudaCopiar:
+	mov		ecx, ayuda							;Aquí se abriría el archivo de ayuda para borrar  F A L T A
+	mov		edx, lenAyuda
+	call	DisplayText
+	
+	jmp		inicio
+	
+;Se brinca aquí cuando si se puso --ayuda, debe moverse a la posicion que está despues de --ayuda, para despues empezar a copiar los bytes en nombreArchivoCopiar
+
+cargarArchivoCopiar:
+
+	mov		edx, lenStringCopiar + 1			;Se mete a edx el índice que ocupamos para el siguiente ciclo, sería en donde va la primera letra del
+	mov		esi, 0								;segundo argumento.
+	mov		ecx, buffParametros					;Buffer que se recorrerá con edx
+    mov		ebx, nombreArchivo1					;buffer donde se irán metiendo bytes, se recorre con esi (desde el inicio)
+    
+    mov		al, [ecx + lenStringCopiar]
+    cmp		al, 10								;Si después de copiar hay más letras pegadas, tira error de comando.
+    je		imprimirErrorComando
+    
+.cicloCargarArchivoCopiar:
+
+	mov		al, byte [ecx + edx]
+	cmp		al, byte 20h					
+	je		cargarNombreCopiar
+	cmp		al, byte 10							;Ciclo que mete lo que haya despues de copiar en segundoArgumento, hasta encontrar un espacio o un enter
+	je		cargarNombreCopiar					;posteriormente brinca a compararAyudaCopiar
+	mov		byte [ebx + esi], al
+	inc		edx
+	inc		esi
+	jmp 	.cicloCargarArchivoCopiar
+
+
+;Se brinca aquí cuando no se ingresó ayuda, lo que cambia es el índice edx, no se debe sumar el len de ayuda.
+cargarNombreCopiar:
+	mov		edx, lenStringRenombrar					;Indice en el que se empezarán a copiar bytes para en nuevoNombreCopiar
+	add		edx, esi								;Falta aumentar edx en el largo del nombre del archivo, este se encuentra en esi.
+	dec		edx
+	mov		esi, 0
+	mov		ecx, buffParametros
+    mov		ebx, nombreArchivo2
+    
+    mov		al,byte [ecx + edx-1]
+    cmp		al, byte 10								;Si lo que está después del nombre de archivo es un enter, tira error y vuelve al inicio.
+    je		mostrarErrorEntrada
+
+   
+.cicloCargarNombreCopiar:
+
+	mov		al, byte [ecx + edx]
+	cmp		al, byte 20h
+	je		ejecutarCopiar
+	cmp		al, byte 10								;Se va metiendo byte por byte lo que esté después del nombre archivo en nuevoNombreCopiar. Brinca
+	je		ejecutarCopiar							;a ejecutarCopiar cuando termina.
+	mov		byte [ebx + esi], al
+	inc		esi
+	inc		edx
+	jmp 	.cicloCargarNombreCopiar
+	
+
+ejecutarCopiar:
+
+	mov		eax, nombreArchivo1						;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
+	
+	mov		ebx, eax 								;Direccion al nombre del archivo
+	mov		ecx, 0									;Read only, solo quiere leer
+	mov		eax,sys_open  							;Servicio para abrir un archivo
+	int		80h		
+	
+
+	test	eax, eax 	;Revisar si el abrir el archivo lo hizo correctamente, SI RETORNA NEGATIVO ESTA MAL, el test actualiza las banderas del status
+	js		errorNoExisteCopiar ;Si la bandera del signo(lo último fue negativo, es decir no se abrió correctamente, tira error)
+	
+	mov		[fileDescriptor1], eax					;Guardo el File descriptor
+	
+	mov		ebx, eax 								;Muevo del a al b, el archivo (file descriptor, resultado de la funcion anterior)
+	mov		ecx, buffArchivo 						;Muevo al ecx el buffer a donde yo voy a mandar a escribir.
+	mov		edx, lenBuffArchivo						;Len del bufferArchivo
+	mov		eax, sys_read							;Servicio 3, leer, retorna la cantidad de bytes que leí.
+					
+	int 	80h
+	
+	mov		[lenArchivo], eax						;Guardo en lenArchivo la cantidad de bytes que se leyeron (quedaron en eax)
+	
+	mov		eax, [fileDescriptor1]
+	
+	mov		ebx, eax
+	call	Cerrar_Archivo							;Se cierra el archivo
+	
+	mov		eax, nombreArchivo2
+	
+	mov 	ebx, eax					    		; Guardamos en "ebx" el nombre que tendrá el archivo que se quiere crear.
+
+	; Se crea el archivo
+	mov 	ecx, 511 				    			; Modo de acceso
+	call 	Crear_Archivo 							;Se crea un nuevo archivo
+	
+	mov		eax, nombreArchivo2
+	
+	mov		ebx, eax								;Direccion al nombre del archivo
+	mov		ecx, 1									;Modo de acceso para poder escribir.
+	mov		eax,sys_open  							;Servicio para abrir un archivo
+	int		80h	
+	
+	mov		[fileDescriptor2], eax					;Se guada el fd del archivo creado.
+	
+	mov 	ebx, eax 								; Se guarda el fd del archivo  para poder escribir sobre el 
+	
+	mov 	ecx, buffArchivo
+	mov 	edx, [lenArchivo]						;Se escribe en el nuevo archivo lo que contiene buffArchivo (copia)
+	call 	Escribir_Archivo
+	
+	
+	mov		eax, [fileDescriptor2]	
+	
+	mov		ebx, eax								;Se cierra el archivo copia
+	call 	Cerrar_Archivo
+	
+	mov		ecx, copiadoConExito
+	mov 	edx, lenCopiadoConExito					;Muestra un mensaje de copiado con éxito.
+	call	DisplayText
+	
+	jmp		inicio									;Vuelve al inicio para esperar un nuevo comando.
+
+
+
 errorNoExisteBorrar:
 	mov		ecx, archivoBorrarNoExiste
 	mov		edx, lenArchivoBorrarNoExiste		;Muestra error de que el archivo que se intenta borrar no existe
 	call	DisplayText
 	
-	call	ResetearInterprete					;Resetea el interprete
 	jmp		inicio								;Vuelve al prompt.
 	
 errorNoExisteMostrar:
@@ -1054,7 +1110,6 @@ errorNoExisteMostrar:
 	mov		edx, lenArchivoMostrarNoExiste		;Muestra error de que el archivo que se intenta borrar no existe
 	call	DisplayText
 	
-	call	ResetearInterprete					;Resetea el interprete
 	jmp		inicio								;Vuelve al prompt.
 
 errorNoExisteRenombrar:
@@ -1062,7 +1117,14 @@ errorNoExisteRenombrar:
 	mov		edx, lenArchivoRenombrarNoExiste	;Muestra error de que el archivo que se intenta renombrar no existe
 	call	DisplayText
 	
-	call	ResetearInterprete					;Resetea el interprete
+	jmp		inicio								;Vuelve al prompt.
+	
+
+errorNoExisteCopiar:
+	mov		ecx, archivoCopiarNoExiste
+	mov		edx, lenArchivoCopiarNoExiste		;Muestra error de que el archivo que se intenta renombrar no existe
+	call	DisplayText
+	
 	jmp		inicio								;Vuelve al prompt.
 
 errorDeseaBorrar:
@@ -1084,7 +1146,6 @@ mostrarErrorEntrada:
 	mov		edx, lenErrorEntradaInvalida		;Muestra un error en la entrada
 	call	DisplayText
 	
-	call	ResetearInterprete
 	jmp		inicio
 	
 	
@@ -1093,6 +1154,7 @@ imprimirErrorComando:
 	mov 	ecx, errorComando
 	mov 	edx, lenErrorComando
 	call 	DisplayText
+	
 	jmp		inicio
 	
 
@@ -1110,69 +1172,70 @@ fin:  							;Finaliza la ejecucion del programa.
 ;Subrutina que resetea variables del juego
 ResetearInterprete:
 	
-	mov		al, byte[numero0]		;Se vuelve a poner en 0 forzado.
+limpiarBuffParametros:
+
+	mov		edx, 0
+	mov		ebx, buffParametros
+	mov		ecx, bufferLimpio
+
+.cicloLimpiarBuffParametros:
+
+	cmp		edx, buffLenParametros
+	je 		limpiarNombreArchivo1
+	mov		al, byte[ecx + edx]
+	mov		byte[ebx + edx], al
+	inc		edx
+	jmp		.cicloLimpiarBuffParametros
+	
+limpiarNombreArchivo1:
+
+	mov		edx, 0
+	mov		ebx, nombreArchivo1
+	mov		ecx, bufferLimpio
+	
+.cicloLimpiarNombreArchivo1:
+
+	cmp		edx, lenNombreArchivo1
+	je 		limpiarNombreArchivo2
+	mov		al, byte[ecx + edx]
+	mov		byte[ebx + edx], al
+	inc		edx
+	jmp		.cicloLimpiarNombreArchivo1
+	
+limpiarNombreArchivo2:
+
+	mov		edx, 0
+	mov		ebx, nombreArchivo2
+	mov		ecx, bufferLimpio
+	
+.cicloLimpiarNombreArchivo2:
+
+	cmp		edx, lenNombreArchivo2
+	je 		retornoResetearInterprete
+	mov		al, byte[ecx + edx]
+	mov		byte[ebx + edx], al
+	inc		edx
+	jmp		.cicloLimpiarNombreArchivo2
+	
+
+retornoResetearInterprete:
+
+	mov		al, byte[numero0]				;Se setea en 0 forzado.
 	mov		byte[forzado], al
 	
+	mov		eax, 0
+	mov		[fileDescriptor1], eax
+	mov		[fileDescriptor2], eax			;Se les pone un 0 a algunas variables.
+	mov		[indiceTemporal], eax
+	mov		[lenArchivo], eax
 	
-limpiarArchivoBorrar:
 
-	mov		ecx, nombreArchivoBorrar
-	mov		edx, 0
-	mov		al, byte 0
-	
-.ciclo:
-	cmp		edx, lenNombreArchivoBorrar				;Se llena de ceros el buffer archivoBorrar
-	je 		limpiarArchivoMostrar
-	mov		byte [ecx+edx], al
-	inc		edx
-	jmp		.ciclo
-
-
-limpiarArchivoMostrar:
-
-	mov		ecx, nombreArchivoMostrar
-	mov		edx, 0
-	mov		al, byte 0
-	
-.ciclo:
-	cmp		edx, lenNombreArchivoMostrar			;Se llena de ceros el buffer archivoMostrar
-	je 		limpiarArchivoRenombrar
-	mov		byte [ecx+edx], al
-	inc		edx
-	jmp		.ciclo
-	
-limpiarArchivoRenombrar:
-
-	mov		ecx, nombreArchivoRenombrar
-	mov		edx, 0
-	mov		al, byte 0
-													;Se llena de ceros el buffer archivoRenombrar
-.ciclo:
-	cmp		edx, lenNombreArchivoRenombrar
-	je 		limpiarNuevoNombreRenombrar
-	mov		byte [ecx+edx], al
-	inc		edx
-	jmp		.ciclo
-
-limpiarNuevoNombreRenombrar:
-
-	mov		ecx, nuevoNombreRenombrar
-	mov		edx, 0
-	mov		al, byte 0
-													;Se llena de ceros el buffer nuevoNombreRenombrar
-.ciclo:
-	cmp		edx, lenNuevoNombreRenombrar
-	je 		retornoResetearInterprete
-	mov		byte [ecx+edx], al
-	inc		edx
-	jmp		.ciclo
-	
-retornoResetearInterprete:
 	xor 	eax,eax
-	xor 	ebx, ebx				;Se limpian los registros
+	xor 	ebx, ebx						;Se limpian los registros
 	xor 	ecx, ecx
 	xor 	edx, edx
-	
+	xor		esi, esi
+		
 	ret
 	
 		
