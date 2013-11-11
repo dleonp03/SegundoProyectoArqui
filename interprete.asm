@@ -29,14 +29,14 @@ buffComando			resb lenBuffComando
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Buffer que almacenará el nombre del archivo que se desea borrar
-lenNombreArchivoBorrar	equ 20
+lenNombreArchivoBorrar	equ 40
 nombreArchivoBorrar		resb lenNombreArchivoBorrar
 
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Buffer que almacenará el nombre del archivo que se desea mostrar
-lenNombreArchivoMostrar	equ 20
+lenNombreArchivoMostrar	equ 40
 nombreArchivoMostrar	resb lenNombreArchivoBorrar
 
 
@@ -44,18 +44,18 @@ nombreArchivoMostrar	resb lenNombreArchivoBorrar
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Buffer que almacenará el nombre del archivo que se desea renombrar
-lenNombreArchivoRenombrar	equ 20
+lenNombreArchivoRenombrar	equ 40
 nombreArchivoRenombrar		resb lenNombreArchivoRenombrar
 
 ;Buffer que almacenará el nuevo nombre para el archivo a renombrar
 
-lenNuevoNombreRenombrar		equ 20
+lenNuevoNombreRenombrar		equ 40
 nuevoNombreRenombrar		resb lenNuevoNombreRenombrar
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Buffer que almacenará la posible palabra --forzado, para verificar si es válida.
-lenBuffForzado		equ 20
+lenBuffForzado		equ 40
 buffForzado			resb lenBuffForzado
 
 ;-------------------------------------------------------------------------------------------------------------------------------------------
@@ -68,17 +68,10 @@ buffEstaSeguro		resb lenBuffEstaSeguro
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 ;Buffer que guarda todo el contenido de un archivo
-lenBuffArchivo	equ 2000
+lenBuffArchivo	equ 6000
 buffArchivo		resb lenBuffArchivo
 
-
-;------------------------------------------------------------------------------------------------------------------------------------
 	
-; Buffer donde se leera lo que el usuario responda en caso de que se llegue a mostrar el mensaje "error3"
-lenByte: 		equ 1
-buffbyte: 		resb lenByte
-
-
 ;-------------------------------------------------------------------------------------------------------------------------------------------
 
 section .data	;Datos  inicializados
@@ -321,7 +314,7 @@ compararConRenombrar:
 .cicloCompararConRenombrar:
 
 	cmp		edx, lenStringRenombrar
-	je		codigoBorrar						
+	je		verificarArgumentosRenombrar						
 	mov		al, byte[ebx + edx]
 	cmp		al, byte[stringRenombrar + edx]
 	jne		compararConCopiar
@@ -841,7 +834,7 @@ cargarArchivoRenombrar2:
 
 	mov		al, byte [ecx + edx]
 	cmp		al, byte 20h
-	je		cargarNombreRenombrar1							;Empieza a copiar byte por byte lo que haya en segundo argumento en nombreArchivoBorrar
+	je		cargarNombreRenombrar2							;Empieza a copiar byte por byte lo que haya en segundo argumento en nombreArchivoBorrar
 	mov		byte [ebx + esi], al
 	inc		edx
 	inc		esi
@@ -991,7 +984,6 @@ renombrarArchivo:
 	test	eax, eax 	;Revisar si el abrir el archivo lo hizo correctamente, SI RETORNA NEGATIVO ESTA MAL, el test actualiza las banderas del status
 	js		errorNoExisteRenombrar ;Si la bandera del signo(lo último fue negativo, es decir no se abrió correctamente, tira error)
 	
-	mov		[fileDescriptor1], eax					;Guardo el el file descriptor
 	mov		ebx, eax 								;Muevo del a al b, el archivo (file descriptor, resultado de la funcion anterior)
 	mov		ecx, buffArchivo 						;Muevo al ecx el buffer a donde yo voy a mandar a escribir.
 	mov		edx, lenBuffArchivo						;Len del bufferArchivo
@@ -999,7 +991,7 @@ renombrarArchivo:
 					
 	int 	80h
 	
-	mov		[lenArchivo], eax						;Guardo en lenArchivo la cantidad de bytes que se leyeron.
+	mov		[lenArchivo], eax						;Guardo en lenArchivo la cantidad de bytes que se leyeron (quedaron en eax)
 	
 	mov		eax, nombreArchivoRenombrar				;Se mueve a eax la dirección del buffer que contiene el nombre del archivo
 	
@@ -1021,29 +1013,13 @@ renombrarArchivo:
 	int		80h	
 	
 	mov 	[fileDescriptor1], eax 					; Se guarda el fd del archivo
-	mov		esi, 0
 	
+	mov 	ebx, eax 								; Se guarda el fd del archivo  para poder escribir sobre el 
 	
+	mov 	ecx, buffArchivo
+	mov 	edx, [lenArchivo]
+	call 	Escribir_Archivo
 	
-	mov		esi, buffArchivo			;esi apunta al buffer del archivo
-	mov 	edi, 0						;índice que irá recorriendo todo el archivo
-
-	mov		dl , byte [esi + edi]
-	
-.cicloLlenarArchivo:
-
-	mov		byte [buffbyte], dl
-	mov		ecx, buffbyte				;Escribe en el archivo el byte correspondiente.
-	mov		edx, lenByte
-	call	Escribir_Archivo
-	inc 	edi
-	mov		dl , byte [esi + edi]
-	mov		eax, [lenArchivo]			;Se guarda el largo del archivo para saber cuando dejar de copiar caracteres
-	cmp 	edi, eax					;Si el índice ya llegó al largo del tablero, deja de copiar y termina la subrutina
-	je 		cerrarArchivoRenombrado
-	jmp 	.cicloLlenarArchivo
-
-cerrarArchivoRenombrado:
 	mov		ebx, [fileDescriptor1]
 	call 	Cerrar_Archivo
 	
@@ -1112,10 +1088,6 @@ mostrarErrorEntrada:
 	jmp		inicio
 	
 	
-	
-	
-	
-	
 imprimirErrorComando:
 
 	mov 	ecx, errorComando
@@ -1137,16 +1109,73 @@ fin:  							;Finaliza la ejecucion del programa.
 
 ;Subrutina que resetea variables del juego
 ResetearInterprete:
+	
+	mov		al, byte[numero0]		;Se vuelve a poner en 0 forzado.
+	mov		byte[forzado], al
+	
+	
+limpiarArchivoBorrar:
+
+	mov		ecx, nombreArchivoBorrar
+	mov		edx, 0
+	mov		al, byte 0
+	
+.ciclo:
+	cmp		edx, lenNombreArchivoBorrar				;Se llena de ceros el buffer archivoBorrar
+	je 		limpiarArchivoMostrar
+	mov		byte [ecx+edx], al
+	inc		edx
+	jmp		.ciclo
+
+
+limpiarArchivoMostrar:
+
+	mov		ecx, nombreArchivoMostrar
+	mov		edx, 0
+	mov		al, byte 0
+	
+.ciclo:
+	cmp		edx, lenNombreArchivoMostrar			;Se llena de ceros el buffer archivoMostrar
+	je 		limpiarArchivoRenombrar
+	mov		byte [ecx+edx], al
+	inc		edx
+	jmp		.ciclo
+	
+limpiarArchivoRenombrar:
+
+	mov		ecx, nombreArchivoRenombrar
+	mov		edx, 0
+	mov		al, byte 0
+													;Se llena de ceros el buffer archivoRenombrar
+.ciclo:
+	cmp		edx, lenNombreArchivoRenombrar
+	je 		limpiarNuevoNombreRenombrar
+	mov		byte [ecx+edx], al
+	inc		edx
+	jmp		.ciclo
+
+limpiarNuevoNombreRenombrar:
+
+	mov		ecx, nuevoNombreRenombrar
+	mov		edx, 0
+	mov		al, byte 0
+													;Se llena de ceros el buffer nuevoNombreRenombrar
+.ciclo:
+	cmp		edx, lenNuevoNombreRenombrar
+	je 		retornoResetearInterprete
+	mov		byte [ecx+edx], al
+	inc		edx
+	jmp		.ciclo
+	
+retornoResetearInterprete:
 	xor 	eax,eax
 	xor 	ebx, ebx				;Se limpian los registros
 	xor 	ecx, ecx
 	xor 	edx, edx
 	
-	mov		al, byte[numero0]		;Se vuelve a poner en 0 forzado.
-	mov		byte[forzado], al
-	
 	ret
 	
+		
 ;Muestra en el monitor lo que tenga en el registro ecx, con el largo en edx.
 
 DisplayText:
