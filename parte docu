@@ -1,0 +1,184 @@
+Instituto Tecnológico de Costa Rica
+
+
+Sede Interuniversitaria de Alajuela
+
+
+Escuela de Ingeniería en Computación
+
+
+Arquitectura de Computadores
+
+
+Proyecto Programado
+
+“Interprete de Comandos”
+
+
+
+Estudiantes
+
+Diego Ugalde Ávila
+
+Jose David León
+
+Luis Eduardo Ugalde
+
+
+
+Profesor 
+
+Jaime Gutiérrez Alfaro
+
+
+
+Segundo semestre del 2013
+
+
+
+
+
+
+Introducción
+
+El presente trabajo corresponde a la documentación del segundo proyecto programado del curso de Arquitectura de Computadores. Esta se realiza con el objetivo de aumentar y mejorar las habilidades en el lenguaje de programación Ensamblador, NASM específicamente. Para esto serán fundamentales los conocimientos adquiridos en clase y en las tareas cortas asignadas por el profesor, además de la investigación propia.
+
+El problema planteado para esta tarea es la elaboración de un programa que simule una interfaz de linea de comandos. A travez de un “prompt”, o “...conjunto de caracteres que se muestran en una linea de comandos para indicar que esta a la espera de ordenes.” (Gutierrez. J), que se le muestra al usuario, se obtiene la orden que este quiera llevar a cabo. El programa se encargara de validar los parametros de la instrucción accesada.
+
+El interprete contara con seis comandos: borrar, mostrar, renombrar, copiar, comparar y salir. Cada uno de estos recibe argumentos distintos. Los primeros cinco comandos cuentan con el parametro opcional “--ayuda”. Este se encarga de mostrar informacion del comando donde se uso este argumento. 
+
+Ademas, algunos de estos comandos contaran con otro parametro opcional “--forzado”. Este hace que el programa realice la accion del comando sin consultar al usuario. Por ejemplo, si se escribe junto al “prompt”:  “borrar archivo.txt  --forzado”, el archivo sera borrado sin preguntar al usuario si esta seguro de que quiere borrar ese archivo.
+
+En este documento, se detalla la forma en la que se planificó y diseñó el software, incluyendo las dificultades encontradas durante la implementación y el porqué de algunas decisiones tomadas para la resolución del problema. Además, se explican algunos detalles de la ejecución del juego. 
+
+Por último, se brindan  recomendaciones y conclusiones obtenidas durante el desarrollo 
+del proyecto, incluyendo algunas consideraciones y consejos útiles para otras personas 
+que desarrollen programas similares. 
+
+
+Análisis del problema
+
+El programa inicia con la impresion del “prompt” (dld&) en pantalla. En este punto se presento el primer problema, la manera en la que se iban a leer los comandos con sus respectivos parametros, ademas de la revision de los posibles problemas en la escritura de una instruccion. Para resolver el problema se decidio utilizar un buffer (buffParametros) donde se lee lo que el usuario digite. Posteriormente, se recorre dicho buffer, byte por byte, hasta encontrar un espacio o un cambio de linea. De esta forma se va obteniendo el comando y  los parametros, los cuales son almacenados en buffers.
+
+Una vez que tenemos el comando en un buffer (buffComando), se procede con la identificacion de este. Para esto se va comparando secuencialmente el buffer con las variables inicializadas que contienen el nombre de cada comando. Esta comparacion se realiza byte por byte. En caso de que lo que se encuentre en el buffer no sea equivalente a ninguno de los comandos, se muestra un mensaje de error y se imprime nuevamente el “prompt” (el programa vulve al inicio).
+
+Ya identificado el comando, el flujo del programa puede tomar distintos caminos. A continuacion se explicaran los problemas y soluciones para cada comando.
+
+Borrar
+
+Este comando se utiliza para eliminar un archivo.  La invocacion del comando requiere del parametro “nombre-archivo”, el cual corresponde al archivo que se desea borrar. Ademas, cuenta con dos argumentos opcionales: “--ayuda”  y “--forzado”. El primero muestra un mensaje con una explicacion sobre el funcionamiento del comando y el segundo sirve para saltarse la pregunta  de verificacion.
+
+Cuando se invoca este comando, lo primero que se hace es identificar el parametro que se encuentre en el buffer “segundoArgumento”. Primero se compara con la variable inicializada que contiene el valor “--ayuda”. En caso de que la comparacion sea positiva, se muestra la informacion de borrar reutilizando el comando mostrar pues, esta informacion se encuentra en un archivo.  Si la comparacion es negativa, se verifica si en la invocacion del comando se encuentra el argumento “--forzado”. De ser asi, se pone un 1 en la variable “forzado”. Esta variable nos sirve para saber si hay que hacer o no, la pregunta de verificacion al usuario.
+ 
+A la hora de borrar un archivo, se verifica que este exista utilizando el servicio numero 5 (sys_open) de la interrupcion 80h. Para esto intentamos abrir el archivo, si el valor de retorno de la operación es negativo, se le indica al usuario que el archivo no existe y se finaliza la ejecucion del comando (se vuelve al “prompt”). En caso de que el archivo exista, se borra utilizando el servicio 10 (sys_unlink) y se muestra un mensaje en pantalla para indicarle al usuario que el proceso se llevo a cabo con éxito. El proceso de verificar la existencia de un archivo le da robustez al programa pues se evitan errores que se podrian presentar al intentar borrar un archivo que no existe.
+
+
+Mostrar
+
+La funcion de este comando es mostrar en pantalla el contenido de un archivo. Su invocacion requiere del parametro “nombre-archivo” , el cual corresponde al nombre del archivo que qeuremos mostrar. Ademas, cuenta con el argumento opcional “--ayuda” que sirve para mostrar la informacion que explica el funcionamiento del comando.
+
+Al igual que borrar, cuando se invoca este comando  lo primero que se hace es identificar el parametro que se encuentre en el buffer ”segundoArgumento” comparandolo, byte por byte, con “--ayuda”. En caso de que la comparacion sea positiva, se muestra la informacion de borrar reutilizando el comando mostrar pues, esta informacion se encuentra en un archivo.  Si la comparacion es negativa, se procede a guardar el nombre del archivo que ingreso el usuario un buffer llamado “nombreArchivo1” para despues mostrarlo.
+
+Para mostrar una archivo, lo primero que se hace es verificar la existencia del archivo que se quiere mostrar. Para esto se utiliza la misma logica explicada en el comando borrar. En caso de que el archivo exista se lee, en “buffArchivo”, el contenido de este utilizando el servicio numero 3 (sys_read). Una vez que que se leyo el archivo en el buffer, se escribe en pantalla y se finaliza la ejecucion del comando volviendo al “prompt”.
+
+
+
+Salir
+
+Este comando finaliza la ejecucion del programa. A diferencia de los otros, este comando no tiene parametros pues su funcion es muy simple. La invocacion de este comando hace que el flujo del programa haga un “jump” a la etiqueta “fin”, la cual se encarga de finalizar la ejecucion del programa.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Conclusiones y recomendaciones
+
+
+Usar “buffers” con un tamaño adecuado para asegurar que los datos que se van a insertar quepan.
+
+Es importante validar todas las entradas del usuario para darle robustez al programa.
+
+La informacion y ejemplos de codigo de ensamblador disponibles en internet, usando NASM, son reducidos. Por esta razon, es necesario dedicar una considerable cantidad de tiempo a la investigacion. Esto se vivio con la investigacion del manejo de archivos o del funcionamiento de GitHub.
+
+Para trabajar de una forma cómoda se recomienda utilizar un entorno de desarrollo integrado llamado Geany, en el cual de una manera fácil y sencilla se puede escribir en lenguaje ensamblador, brindándonos pequeñas ayudas, como diferenciar los comentarios del código en sí.
+
+Elaborar un diagrama del flujo del programa y sus casos especiales antes de empezar a escribir código. Esto para tener una idea mas clara de lo que se pide y “agilizar” el desarrollo de código.
+
+Si se presenta una “pulga” en la ejecución del código, es recomendable seguir el flujo del programa paso a paso en una hoja de papel, pizarra, entre otros. 
+
+En ocasiones, algunas secciones del código de un programa pueden parecer duplicación pero es necesario. Esto se da porque el lenguaje ensamblador no brinda tanta flexibilidad como otros lenguajes de programación de alto nivel, y la duplicación viene a ser el mejor camino para un programa eficiente.
+
+Las subrutinas disminuyen la cantidad de codigo, pues estas pueden ser reutilizadas en diferentes secciones del programa.
+
+
+Es de mucha ayuda la reutilizacion de codigo de otros programas que se tengan, ya que se reduce y agiliza el trabajo. Esto se vio en la mayor parte de esta tarea, pues reutilizamos la logica y “metodos” que teniamos en el primer proyecto programado para guardar y cargar el juego.
+
+Aclarar dudas con el profesor, compañeros e investigar por aparte es fundamental para el desarrollo oportuno de esta tarea.
+
+Una buena comunicación entre los compañeros de trabajo puede facilitar las cosas, explicarse entre sí códigos y el funcionamiento del programa es una buena práctica.
+
+Documentar mientras se escribe el código. Se recomienda ir haciendo la documentación conforme se va implementando código (interna y externa), ya que una cosa va de la mano con la otra, es preferible ir comentando el código y anotando recomendaciones de una vez.
+
+Llevar los apuntes al día con la bitácora, cada acción importante que se haga acerca del desarrollo del proyecto, es saludable anotarla en la bitácora o cuadernillo de trabajo.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Referencias
+
+Int 80h. (2012, 9 de septiembre). Wikipedia, La enciclopedia libre. Fecha de consulta: 17:22, octubre 24, 2013 desde http://es.wikipedia.org/w/index.php?title=Int_80h&oldid=59531741
+
+nasm-fops. (2011, 12 de febrero). Matvev. Fecha de consulta: octubre 24, 2013 desde  http://www.matveev.se/asm/nasm-fops.htm
+
+List of Linux/i386 system calls. (2000, 18 de mayo). Sourceforge. Fecha de consulta:  octubre 24, 2013 desde  http://asm.sourceforge.net/syscall.html#p3
+
+Swanepoel. D. (2002, 19 de abril). Linux Assembly Tutorial. Fecha de consulta:  octubre 24, 2013 desde http://docs.cs.up.ac.za/programming/asm/derick_tut/quickstart.html 
+
+
+El Codigo ASCII. (Fecha de publicacion desconocida). El Codigo ASCII.  Fecha de consulta:  octubre 22, 2013 desde http://docs.cs.up.ac.za/programming/asm/derick_tut/quickstart.html.
+
+
+
